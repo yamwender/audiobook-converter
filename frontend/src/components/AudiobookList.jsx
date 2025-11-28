@@ -23,13 +23,14 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
 
     const fetchConversionStatus = async (filename) => {
         try {
-            const res = await axios.get(`${API_URL}/conversion-status/${filename}`);
-            if (res.data.status !== 'not_found') {
-                setConversionStatus(prev => ({
-                    ...prev,
-                    [filename]: res.data
-                }));
-            }
+            // Encode filename to handle spaces and special characters
+            const encodedFilename = encodeURIComponent(filename);
+            const res = await axios.get(`${API_URL}/conversion-status/${encodedFilename}`);
+
+            setConversionStatus(prev => ({
+                ...prev,
+                [filename]: res.data
+            }));
         } catch (error) {
             console.error("Error fetching status:", error);
         }
@@ -37,7 +38,8 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
 
     const handleDelete = async (filename) => {
         try {
-            await axios.delete(`${API_URL}/audiobook/${filename}`);
+            const encodedFilename = encodeURIComponent(filename);
+            await axios.delete(`${API_URL}/audiobook/${encodedFilename}`);
             setDeleteConfirm(null);
             fetchBooks(); // Refresh library
         } catch (error) {
@@ -52,12 +54,15 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
         // Poll for conversion status every 2 seconds
         const interval = setInterval(() => {
             books.forEach(book => {
-                fetchConversionStatus(book.filename);
+                // Only poll if book is converting
+                if (book.status === 'converting' || (conversionStatus[book.filename] && conversionStatus[book.filename].status !== 'completed')) {
+                    fetchConversionStatus(book.filename);
+                }
             });
         }, 2000);
 
         return () => clearInterval(interval);
-    }, [refreshTrigger, books.length]);
+    }, [refreshTrigger, books.length]); // Removed conversionStatus dependency to avoid infinite loops
 
     const getStatusForBook = (filename) => {
         return conversionStatus[filename];
@@ -85,7 +90,17 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
                 <ul className="space-y-3">
                     {books.map((book) => {
                         const status = getStatusForBook(book.filename);
-                        const isConverting = status && status.status !== 'completed' && status.status !== 'not_found';
+                        // Show progress bar if:
+                        // 1. We have status and it's not completed/not_found
+                        // 2. OR we don't have status yet but library says it's converting
+                        const isConverting = (status && status.status !== 'completed' && status.status !== 'not_found') ||
+                            (!status && book.status === 'converting');
+
+                        // Use status message or default
+                        const progressMessage = status?.message || "Starting conversion...";
+                        const progressPercent = status?.progress || 0;
+                        const currentChunk = status?.current_chunk || 0;
+                        const totalChunks = status?.total_chunks || 0;
 
                         return (
                             <li key={book.filename} className="p-3 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors">
@@ -115,17 +130,17 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
                                     <div className="mt-2">
                                         <div className="flex items-center gap-2 mb-1">
                                             <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
-                                            <span className="text-xs text-slate-400">{status.message}</span>
+                                            <span className="text-xs text-slate-400">{progressMessage}</span>
                                         </div>
                                         <div className="w-full bg-slate-600 rounded-full h-2 overflow-hidden">
                                             <div
                                                 className="bg-gradient-to-r from-blue-600 to-purple-600 h-full transition-all duration-300"
-                                                style={{ width: `${status.progress || 0}%` }}
+                                                style={{ width: `${progressPercent}%` }}
                                             />
                                         </div>
                                         <div className="text-xs text-slate-500 mt-1">
-                                            {status.current_chunk > 0 && `Chunk ${status.current_chunk}/${status.total_chunks} • `}
-                                            {status.progress || 0}%
+                                            {currentChunk > 0 && `Chunk ${currentChunk}/${totalChunks} • `}
+                                            {progressPercent}%
                                         </div>
                                     </div>
                                 )}
