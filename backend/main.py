@@ -80,7 +80,7 @@ async def start_conversion(request: ConversionRequest, background_tasks: Backgro
 @app.post("/preview")
 async def generate_preview(request: ConversionRequest):
     """Generate a 30-second preview of the selected voices"""
-    from converter import extract_text_from_pdf, extract_text_from_epub_with_chapters, split_into_narrative_segments, text_to_speech_chunk
+    from converter import extract_text_from_pdf, extract_text_from_epub_with_chapters, text_to_speech_chunk
     import io
     
     file_path = UPLOAD_DIR / request.filename
@@ -98,50 +98,33 @@ async def generate_preview(request: ConversionRequest):
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
         
-        # Take first ~500 characters for preview (about 30 seconds of audio)
-        preview_text = full_text[:500]
+        # Take first ~300 characters for preview (about 20-30 seconds of audio)
+        preview_text = full_text[:300].strip()
         
-        # Split into narrative segments
-        segments = split_into_narrative_segments(preview_text)
+        if not preview_text:
+            raise HTTPException(status_code=400, detail="No text found in file")
         
-        # Generate audio for each segment
-        audio_chunks = []
-        for segment in segments:
-            # Detect emphasis (ALL CAPS, multiple exclamation marks)
-            text = segment['text']
-            is_emphasis = (
-                (text.isupper() and len(text.split()) > 2) or  # ALL CAPS text
-                ('!!' in text) or  # Multiple exclamation marks
-                ('!!!' in text)
-            )
-            
-            # Choose voice based on segment type and emphasis
-            if is_emphasis:
-                voice_to_use = request.emphasis_voice_id
-            elif segment['type'] == 'dialogue':
-                voice_to_use = request.dialogue_voice_id
-            else:
-                voice_to_use = request.narrator_voice_id
-                
-            audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
-            if audio_bytes:
-                audio_chunks.append(audio_bytes)
+        # Generate simple preview with narrator voice only
+        print(f"Generating preview: {len(preview_text)} characters")
+        audio_bytes = text_to_speech_chunk(preview_text, request.narrator_voice_id)
         
-        # Merge all chunks
-        if not audio_chunks:
-            raise HTTPException(status_code=500, detail="Failed to generate preview")
-        
-        preview_audio = b''.join(audio_chunks)
+        if not audio_bytes:
+            raise HTTPException(status_code=500, detail="Failed to generate preview audio")
         
         # Return audio as streaming response
         from fastapi.responses import StreamingResponse
         return StreamingResponse(
-            io.BytesIO(preview_audio),
+            io.BytesIO(audio_bytes),
             media_type="audio/mpeg",
             headers={"Content-Disposition": f"inline; filename=preview.mp3"}
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Preview error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Preview generation failed: {str(e)}")
 
 @app.get("/library")

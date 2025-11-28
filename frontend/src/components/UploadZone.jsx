@@ -220,6 +220,18 @@ const UploadZone = ({ onUploadSuccess }) => {
                         )}
                     </button>
 
+                    {/* Progress bar for preview generation */}
+                    {generatingPreview && (
+                        <div className="mt-3">
+                            <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
+                                <div className="bg-purple-500 h-full animate-pulse w-full"
+                                    style={{ animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
+                                />
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 text-center">Processing audio...</p>
+                        </div>
+                    )}
+
                     {previewUrl && (
                         <div className="mt-3">
                             <p className="text-xs text-slate-400 mb-2">Preview Audio:</p>
