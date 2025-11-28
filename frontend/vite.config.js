@@ -8,10 +8,15 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    basicSsl()
+    // basicSsl() // Temporarily disabled
   ],
   server: {
     host: true, // Listen on all addresses
     port: 5173,
+    // Temporarily disable HTTPS for debugging
+    // https: {
+    //   key: fs.readFileSync('./.cert/key.pem'),
+    //   cert: fs.readFileSync('./.cert/cert.pem'),
+    // },
   }
 })

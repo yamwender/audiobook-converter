@@ -13,6 +13,31 @@ function App() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [view, setView] = useState('home'); // 'home' or 'player'
+  const [conversionStatus, setConversionStatus] = useState({});
+
+  const fetchConversionStatus = async (filename) => {
+    try {
+      const response = await axios.get(`${API_URL}/conversion-status/${filename}`);
+      setConversionStatus(prev => ({
+        ...prev,
+        [filename]: response.data
+      }));
+    } catch (error) {
+      console.error(`Error fetching status for ${filename}:`, error);
+    }
+  };
+
+  // Poll for conversion status
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      books.forEach(book => {
+        if (book.status === 'converting' || (conversionStatus[book.filename] && conversionStatus[book.filename].status !== 'completed')) {
+          fetchConversionStatus(book.filename);
+        }
+      });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [books, conversionStatus]);
 
   const handleUploadSuccess = () => {
     setTimeout(() => {
@@ -118,10 +143,10 @@ function App() {
 
               <div className="flex-1 overflow-y-auto p-4">
                 <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-bold flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-purple-400" />
-                    Library
-                  </h2>
+                  <h1 className="text-2xl font-bold flex items-center gap-3">
+                    <Headphones className="w-8 h-8" />
+                    Audiobook Converter
+                  </h1>
                   <button
                     onClick={fetchBooks}
                     className="p-2 hover:bg-slate-700 rounded-full transition-colors"
@@ -135,34 +160,76 @@ function App() {
                   <p className="text-slate-400 text-center py-8 text-sm">No audiobooks found.</p>
                 ) : (
                   <ul className="space-y-2">
-                    {books.map((book) => (
-                      <li
-                        key={book.filename}
-                        className="p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate flex-1 text-sm font-medium">
-                            {book.filename}
-                          </span>
-                          <div className="flex gap-1 flex-shrink-0">
-                            <button
-                              onClick={() => handlePlay(book.filename)}
-                              className="p-2 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition-colors"
-                              title="Play"
-                            >
-                              <Play className="w-3 h-3 fill-current" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(book.filename)}
-                              className="p-2 bg-red-600 hover:bg-red-500 rounded-full text-white transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                    {books.map((book) => {
+                      const status = conversionStatus[book.filename];
+                      const progressPercent = status?.progress || 0;
+                      const isConverting = book.status === 'converting' && status?.status !== 'completed';
+
+                      return (
+                        <li
+                          key={book.filename}
+                          className="p-3 rounded-lg bg-slate-700/50 hover:bg-slate-700 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            {/* Cover Image */}
+                            <div className="w-12 h-12 rounded bg-slate-600 flex-shrink-0 overflow-hidden border border-slate-600">
+                              {book.cover ? (
+                                <img
+                                  src={`${API_URL}${book.cover}`}
+                                  alt={book.filename}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                  <Headphones className="w-6 h-6" />
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex-1 mr-4 flex flex-col">
+                              <span className="text-sm font-medium text-white truncate">{book.filename}</span>
+                              {isConverting && (
+                                <div className="mt-2 w-full max-w-[200px]">
+                                  <div className="flex justify-between text-xs text-blue-300 mb-1">
+                                    <span>Converting...</span>
+                                    <span>{progressPercent}%</span>
+                                  </div>
+                                  <div className="h-1.5 bg-slate-600 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-blue-500 transition-all duration-500 ease-out rounded-full"
+                                      style={{ width: `${progressPercent}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                              {!isConverting && (
+                                <div className="mt-1">
+                                  <span className="text-xs text-slate-400">
+                                    {book.status === 'completed' ? 'Ready to play' : book.status}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-1 flex-shrink-0">
+                              <button
+                                onClick={() => handlePlay(book.filename)}
+                                className="p-2 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition-colors"
+                                title="Play"
+                              >
+                                <Play className="w-3 h-3 fill-current" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(book.filename)}
+                                className="p-2 bg-red-600 hover:bg-red-500 rounded-full text-white transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      </li>
-                    ))}
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>

@@ -1,7 +1,7 @@
 import os
 import shutil
 from typing import List
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -37,6 +37,9 @@ FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
+# Serve audiobooks directory for cover images
+app.mount("/audiobooks", StaticFiles(directory=AUDIO_DIR), name="audiobooks")
+
 class ConversionRequest(BaseModel):
     filename: str
     narrator_voice_id: str = "en-US-GuyNeural"  # Default narrator voice
@@ -50,12 +53,34 @@ def read_root():
     return {"message": "Audiobook Converter Backend is running"}
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), cover_image: UploadFile = File(None), custom_filename: str = Form(None)):
     try:
-        file_path = UPLOAD_DIR / file.filename
+        # Use custom filename if provided, otherwise use original
+        if custom_filename:
+            # Preserve original extension
+            original_ext = Path(file.filename).suffix
+            # Ensure custom filename has the correct extension
+            if not custom_filename.endswith(original_ext):
+                filename = custom_filename + original_ext
+            else:
+                filename = custom_filename
+        else:
+            filename = file.filename
+
+        file_path = UPLOAD_DIR / filename
         with file_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-        return {"filename": file.filename, "message": "File uploaded successfully"}
+            
+        # Handle cover image if provided
+        if cover_image:
+            # Use same basename as audio file but with image extension
+            image_ext = Path(cover_image.filename).suffix
+            image_filename = Path(filename).stem + image_ext
+            image_path = AUDIO_DIR / image_filename
+            with image_path.open("wb") as buffer:
+                shutil.copyfileobj(cover_image.file, buffer)
+                
+        return {"filename": filename, "message": "File uploaded successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -154,17 +179,48 @@ def get_library():
     
     # Get completed audiobooks
     if AUDIO_DIR.exists():
-        for f in AUDIO_DIR.glob("*.mp3"):
-            files.append({"filename": f.name, "path": str(f), "status": "completed"})
+        for file in AUDIO_DIR.glob("*.mp3"):
+            # If file is currently converting, skip it here
+            if file.name in conversion_progress and conversion_progress[file.name]["status"] != "completed":
+                continue
+                
+            # Check for cover image
+            cover_path = None
+            # Look for common image extensions
+            for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                image_path = AUDIO_DIR / (file.stem + ext)
+                if image_path.exists():
+                    cover_path = f"/audiobooks/{image_path.name}"
+                    break
+
+            files.append({
+                "filename": file.name,
+                "path": f"/audio/{file.name}",
+                "status": "completed",
+                "cover": cover_path
+            })
     
     # Add books currently being converted
     for filename, progress in conversion_progress.items():
-        # Only add if not already in completed list
+        # Only add if not already in list
         if not any(book["filename"] == filename for book in files):
-            # Only show if still converting
-            if progress.get("status") not in ["completed", "failed", "not_found"]:
-                files.append({"filename": filename, "path": "", "status": "converting"})
+            # Check for cover image for converting books too
+            cover_path = None
+            stem = Path(filename).stem
+            for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                image_path = AUDIO_DIR / (stem + ext)
+                if image_path.exists():
+                    cover_path = f"/audiobooks/{image_path.name}"
+                    break
+                    
+            files.append({
+                "filename": filename, 
+                "path": "", 
+                "status": "converting",
+                "cover": cover_path
+            })
     
+    print(f"Library returning: {files}")
     return files
 
 @app.get("/audio/{filename}")
@@ -194,20 +250,32 @@ def delete_audiobook(filename: str):
     audio_path = AUDIO_DIR / filename
     chapters_path = AUDIO_DIR / f"{Path(filename).stem}_chapters.json"
     
-    if not audio_path.exists():
+    deleted = False
+    
+    # Check if currently converting and remove from progress
+    if filename in conversion_progress:
+        del conversion_progress[filename]
+        deleted = True
+    
+    # Delete audio file if exists
+    if audio_path.exists():
+        try:
+            audio_path.unlink()
+            deleted = True
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete audio file: {str(e)}")
+            
+    # Delete chapter metadata if exists
+    if chapters_path.exists():
+        try:
+            chapters_path.unlink()
+        except Exception as e:
+            print(f"Failed to delete chapters file: {str(e)}")
+    
+    if not deleted:
         raise HTTPException(status_code=404, detail="Audiobook not found")
     
-    try:
-        # Delete audio file
-        audio_path.unlink()
-        
-        # Delete chapter metadata if exists
-        if chapters_path.exists():
-            chapters_path.unlink()
-        
-        return {"message": "Audiobook deleted successfully", "filename": filename}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"message": "Audiobook deleted successfully", "filename": filename}
 
 if __name__ == "__main__":
     import socket
@@ -223,7 +291,7 @@ if __name__ == "__main__":
         s.close()
     
     print(f"\n{'='*60}")
-    print(f"🎧 Audiobook Converter Backend")
+    print(f"Audiobook Converter Backend")
     print(f"{'='*60}")
     print(f"Local:   http://localhost:8000")
     print(f"Network: http://{local_ip}:8000")

@@ -37,16 +37,44 @@ const UploadZone = ({ onUploadSuccess }) => {
         { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)' },
     ];
 
-    const handleFileChange = async (e) => {
+    const [showRenameModal, setShowRenameModal] = useState(false);
+    const [customName, setCustomName] = useState('');
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [coverImage, setCoverImage] = useState(null);
+
+    const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
+        setSelectedFile(file);
+        // Default to filename without extension
+        const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+        setCustomName(nameWithoutExt);
+        setCoverImage(null); // Reset cover image
+        setShowRenameModal(true);
+    };
+
+    const handleCoverImageChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setCoverImage(file);
+        }
+    };
+
+    const handleUpload = async () => {
+        if (!selectedFile) return;
+
+        setShowRenameModal(false);
         setUploading(true);
         setUploadProgress(0);
         setConversionStage('uploading');
 
         const formData = new FormData();
-        formData.append('file', file);
+        formData.append('file', selectedFile);
+        formData.append('custom_filename', customName);
+        if (coverImage) {
+            formData.append('cover_image', coverImage);
+        }
 
         try {
             // 1. Upload file with progress tracking
@@ -78,6 +106,8 @@ const UploadZone = ({ onUploadSuccess }) => {
                 setUploading(false);
                 setConversionStage('');
                 setUploadProgress(0);
+                setSelectedFile(null);
+                setCoverImage(null);
                 if (onUploadSuccess) onUploadSuccess();
             }, 2000);
 
@@ -88,6 +118,8 @@ const UploadZone = ({ onUploadSuccess }) => {
                 setUploading(false);
                 setConversionStage('');
                 setUploadProgress(0);
+                setSelectedFile(null);
+                setCoverImage(null);
             }, 3000);
         }
     };
@@ -134,7 +166,7 @@ const UploadZone = ({ onUploadSuccess }) => {
     };
 
     return (
-        <div className="w-full max-w-md mx-auto p-6 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
+        <div className="w-full max-w-md mx-auto p-6 bg-slate-800 rounded-xl shadow-lg border border-slate-700 relative">
             <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-blue-400" />
                 Upload eBook
@@ -194,58 +226,6 @@ const UploadZone = ({ onUploadSuccess }) => {
                 </select>
             </div>
 
-            {/* Preview Section - Temporarily disabled due to performance issues */}
-            {false && uploadedFile && !uploading && (
-                <div className="mb-4 p-4 bg-slate-700/50 rounded-lg border border-slate-600">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm text-slate-300">
-                            <span className="font-medium">Ready:</span> {uploadedFile}
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={handlePreview}
-                        disabled={generatingPreview}
-                        className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                        {generatingPreview ? (
-                            <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Generating Preview...
-                            </>
-                        ) : (
-                            <>
-                                🎧 Preview Voices (30s)
-                            </>
-                        )}
-                    </button>
-
-                    {/* Progress bar for preview generation */}
-                    {generatingPreview && (
-                        <div className="mt-3">
-                            <div className="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
-                                <div className="bg-purple-500 h-full animate-pulse w-full"
-                                    style={{ animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}
-                                />
-                            </div>
-                            <p className="text-xs text-slate-400 mt-1 text-center">Processing audio...</p>
-                        </div>
-                    )}
-
-                    {previewUrl && (
-                        <div className="mt-3">
-                            <p className="text-xs text-slate-400 mb-2">Preview Audio:</p>
-                            <audio
-                                controls
-                                src={previewUrl}
-                                className="w-full"
-                                style={{ height: '40px' }}
-                            />
-                        </div>
-                    )}
-                </div>
-            )}
-
             <div className="relative border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
                 <input
                     type="file"
@@ -253,6 +233,7 @@ const UploadZone = ({ onUploadSuccess }) => {
                     onChange={handleFileChange}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     disabled={uploading}
+                    value="" // Always reset value to allow selecting same file again
                 />
 
                 {uploading ? (
@@ -288,6 +269,69 @@ const UploadZone = ({ onUploadSuccess }) => {
                     </div>
                 )}
             </div>
+
+            {/* Rename Modal */}
+            {showRenameModal && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 w-full max-w-sm shadow-2xl">
+                        <h3 className="text-lg font-bold mb-4 text-white">Name Your Audiobook</h3>
+                        <div className="mb-4">
+                            <label className="block text-sm text-slate-400 mb-1">Book Title</label>
+                            <input
+                                type="text"
+                                value={customName}
+                                onChange={(e) => setCustomName(e.target.value)}
+                                className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                autoFocus
+                            />
+                            <p className="text-xs text-slate-500 mt-1">
+                                Original: {selectedFile?.name}
+                            </p>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-sm text-slate-400 mb-1">Cover Image (Optional)</label>
+                            <div className="flex items-center gap-3">
+                                <label className="cursor-pointer px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-white transition-colors border border-slate-600">
+                                    Choose Image
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleCoverImageChange}
+                                        className="hidden"
+                                    />
+                                </label>
+                                {coverImage ? (
+                                    <span className="text-sm text-green-400 truncate max-w-[150px]">
+                                        {coverImage.name}
+                                    </span>
+                                ) : (
+                                    <span className="text-sm text-slate-500">No image selected</span>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                onClick={() => {
+                                    setShowRenameModal(false);
+                                    setSelectedFile(null);
+                                    setCoverImage(null);
+                                }}
+                                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors text-sm"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleUpload}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition-colors text-sm font-medium"
+                            >
+                                Upload & Convert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

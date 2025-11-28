@@ -8,12 +8,24 @@ from bs4 import BeautifulSoup
 CHUNK_SIZE = 1024
 MAX_CHARS_PER_REQUEST = 5000  # Keep reasonable chunk size
 
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_path, progress_callback=None):
     text = ""
     with open(pdf_path, 'rb') as file:
         reader = PyPDF2.PdfReader(file)
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
+        num_pages = len(reader.pages)
+        print(f"PDF has {num_pages} pages")
+        
+        for i, page in enumerate(reader.pages):
+            try:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n"
+            except Exception as e:
+                print(f"Error extracting page {i+1}: {e}")
+                
+            if progress_callback and (i % 5 == 0 or i == num_pages - 1):
+                progress_callback(i + 1, num_pages)
+                
     return text
 
 def extract_text_from_epub_with_chapters(epub_path):
@@ -281,7 +293,12 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
     
     # Extract text and chapters
     if path.suffix.lower() == '.pdf':
-        text = extract_text_from_pdf(input_path)
+        def extraction_progress(current, total):
+            percent = int((current / total) * 10)
+            update_progress("processing", percent, 0, 0, f"Extracting text (Page {current}/{total})...")
+            print(f"Extracting page {current}/{total}...")
+
+        text = extract_text_from_pdf(input_path, extraction_progress)
         # Try intelligent chapter detection for PDFs
         chapters = detect_chapters_from_text(text)
         print(f"Detected {len(chapters)} chapters from PDF")
@@ -346,9 +363,17 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
             else:
                 voice_to_use = narrator_voice_id
             
-            audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
-            if audio_bytes:
-                chunk_audio.append(audio_bytes)
+            print(f"  - Generating audio for segment ({len(segment['text'])} chars, voice: {voice_to_use})")
+            try:
+                audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
+                if audio_bytes:
+                    chunk_audio.append(audio_bytes)
+                else:
+                    print(f"  ! Failed to generate audio for segment: {segment['text'][:50]}...")
+            except Exception as e:
+                print(f"  ! Error generating audio segment: {str(e)}")
+                import traceback
+                traceback.print_exc()
             else:
                 print(f"Failed to convert {segment['type']} segment")
         
