@@ -194,8 +194,8 @@ const UploadZone = ({ onUploadSuccess }) => {
                 </select>
             </div>
 
-            {/* Preview Section */}
-            {uploadedFile && !uploading && (
+            {/* Preview Section - Temporarily disabled due to performance issues */}
+            {false && uploadedFile && !uploading && (
                 <div className="mb-4 p-4 bg-slate-700/50 rounded-lg border border-slate-600">
                     <div className="flex items-center justify-between mb-3">
                         <div className="text-sm text-slate-300">
