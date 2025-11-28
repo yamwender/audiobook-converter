@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Play, BookOpen, RefreshCw, Trash2 } from 'lucide-react';
+import { Play, BookOpen, RefreshCw, Trash2, Loader2 } from 'lucide-react';
 import { API_URL } from '../config';
 
 const AudiobookList = ({ onPlay, refreshTrigger }) => {
     const [books, setBooks] = useState([]);
     const [loading, setLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [conversionStatus, setConversionStatus] = useState({});
 
     const fetchBooks = async () => {
         setLoading(true);
@@ -17,6 +18,20 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
             console.error("Error fetching library:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchConversionStatus = async (filename) => {
+        try {
+            const res = await axios.get(`${API_URL}/conversion-status/${filename}`);
+            if (res.data.status !== 'not_found') {
+                setConversionStatus(prev => ({
+                    ...prev,
+                    [filename]: res.data
+                }));
+            }
+        } catch (error) {
+            console.error("Error fetching status:", error);
         }
     };
 
@@ -33,7 +48,20 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
 
     useEffect(() => {
         fetchBooks();
-    }, [refreshTrigger]);
+
+        // Poll for conversion status every 2 seconds
+        const interval = setInterval(() => {
+            books.forEach(book => {
+                fetchConversionStatus(book.filename);
+            });
+        }, 2000);
+
+        return () => clearInterval(interval);
+    }, [refreshTrigger, books.length]);
+
+    const getStatusForBook = (filename) => {
+        return conversionStatus[filename];
+    };
 
     return (
         <div className="w-full max-w-md mx-auto mt-8 p-6 bg-slate-800 rounded-xl shadow-lg border border-slate-700">
@@ -55,27 +83,55 @@ const AudiobookList = ({ onPlay, refreshTrigger }) => {
                 <p className="text-slate-400 text-center py-4">No audiobooks found.</p>
             ) : (
                 <ul className="space-y-3">
-                    {books.map((book) => (
-                        <li key={book.filename} className="flex items-center justify-between p-3 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors">
-                            <span className="truncate flex-1 mr-4 text-sm font-medium">{book.filename}</span>
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => onPlay(book.filename)}
-                                    className="p-2 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition-colors"
-                                    title="Play"
-                                >
-                                    <Play className="w-4 h-4 fill-current" />
-                                </button>
-                                <button
-                                    onClick={() => setDeleteConfirm(book.filename)}
-                                    className="p-2 bg-red-600 hover:bg-red-500 rounded-full text-white transition-colors"
-                                    title="Delete"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </li>
-                    ))}
+                    {books.map((book) => {
+                        const status = getStatusForBook(book.filename);
+                        const isConverting = status && status.status !== 'completed' && status.status !== 'not_found';
+
+                        return (
+                            <li key={book.filename} className="p-3 bg-slate-700/50 rounded-lg hover:bg-slate-700 transition-colors">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="truncate flex-1 mr-4 text-sm font-medium">{book.filename}</span>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => onPlay(book.filename)}
+                                            className="p-2 bg-blue-600 hover:bg-blue-500 rounded-full text-white transition-colors"
+                                            title="Play"
+                                            disabled={isConverting}
+                                        >
+                                            <Play className="w-4 h-4 fill-current" />
+                                        </button>
+                                        <button
+                                            onClick={() => setDeleteConfirm(book.filename)}
+                                            className="p-2 bg-red-600 hover:bg-red-500 rounded-full text-white transition-colors"
+                                            title="Delete"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Progress Bar */}
+                                {isConverting && (
+                                    <div className="mt-2">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                                            <span className="text-xs text-slate-400">{status.message}</span>
+                                        </div>
+                                        <div className="w-full bg-slate-600 rounded-full h-2 overflow-hidden">
+                                            <div
+                                                className="bg-gradient-to-r from-blue-600 to-purple-600 h-full transition-all duration-300"
+                                                style={{ width: `${status.progress || 0}%` }}
+                                            />
+                                        </div>
+                                        <div className="text-xs text-slate-500 mt-1">
+                                            {status.current_chunk > 0 && `Chunk ${status.current_chunk}/${status.total_chunks} • `}
+                                            {status.progress || 0}%
+                                        </div>
+                                    </div>
+                                )}
+                            </li>
+                        );
+                    })}
                 </ul>
             )}
 

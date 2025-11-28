@@ -256,12 +256,23 @@ def merge_audio_chunks_binary(audio_chunks, output_path):
     
     return True
 
-def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_voice_id, emphasis_voice_id):
+def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_voice_id, emphasis_voice_id, progress_dict=None, progress_key=None):
     import json
     
     path = Path(input_path)
     text = ""
     chapters = []
+    
+    def update_progress(status, progress, current, total, message):
+        """Helper to update progress dict"""
+        if progress_dict is not None and progress_key is not None:
+            progress_dict[progress_key] = {
+                "status": status,
+                "progress": progress,
+                "current_chunk": current,
+                "total_chunks": total,
+                "message": message
+            }
     
     print(f"Starting conversion for: {path.name}")
     print(f"Using narrator voice: {narrator_voice_id}")
@@ -293,10 +304,12 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
         return
 
     print(f"Extracted {len(text)} characters")
+    update_progress("processing", 10, 0, 0, "Processing text...")
     
     # Chunk the text
     chunks = chunk_text(text)
     print(f"Split into {len(chunks)} chunks")
+    update_progress("converting", 15, 0, len(chunks), f"Starting conversion of {len(chunks)} chunks...")
     
     # Convert each chunk to audio with voice switching
     audio_chunks = []
@@ -304,6 +317,10 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
     cumulative_chars = 0
     
     for i, chunk in enumerate(chunks):
+        # Update progress
+        progress_percent = 15 + int((i / len(chunks)) * 70)  # 15% to 85%
+        update_progress("converting", progress_percent, i + 1, len(chunks), f"Converting chunk {i+1}/{len(chunks)}...")
+        
         print(f"Converting chunk {i+1}/{len(chunks)}...")
         chunk_char_positions.append(cumulative_chars)
         cumulative_chars += len(chunk)
@@ -377,6 +394,7 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
         print(f"Saved chapter data to {chapters_path}")
     
     print(f"Merging {len(audio_chunks)} audio chunks...")
+    update_progress("finalizing", 90, len(chunks), len(chunks), "Finalizing audiobook...")
     
     # Merge all audio chunks using binary concatenation
     success = merge_audio_chunks_binary(audio_chunks, output_path)
@@ -385,5 +403,7 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
         file_size = Path(output_path).stat().st_size
         print(f"Audio saved to {output_path}")
         print(f"File size: {file_size / 1024 / 1024:.2f} MB")
+        update_progress("completed", 100, len(chunks), len(chunks), "Conversion complete!")
     else:
         print("Failed to merge audio chunks")
+        update_progress("failed", 0, len(chunks), len(chunks), "Conversion failed")

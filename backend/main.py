@@ -29,6 +29,9 @@ AUDIO_DIR = Path("audiobooks")
 UPLOAD_DIR.mkdir(exist_ok=True)
 AUDIO_DIR.mkdir(exist_ok=True)
 
+# Global progress tracking
+conversion_progress = {}
+
 # Serve frontend static files
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 if FRONTEND_DIST.exists():
@@ -65,6 +68,15 @@ async def start_conversion(request: ConversionRequest, background_tasks: Backgro
     output_filename = f"{file_path.stem}.mp3"
     output_path = AUDIO_DIR / output_filename
     
+    # Initialize progress tracking
+    conversion_progress[output_filename] = {
+        "status": "starting",
+        "progress": 0,
+        "total_chunks": 0,
+        "current_chunk": 0,
+        "message": "Initializing conversion..."
+    }
+    
     # Run conversion in background with all three voices
     background_tasks.add_task(
         convert_to_audiobook, 
@@ -72,7 +84,9 @@ async def start_conversion(request: ConversionRequest, background_tasks: Backgro
         str(output_path), 
         request.narrator_voice_id,
         request.dialogue_voice_id,
-        request.emphasis_voice_id
+        request.emphasis_voice_id,
+        conversion_progress,
+        output_filename
     )
     
     return {"message": "Conversion started", "output_filename": output_filename}
@@ -126,6 +140,13 @@ async def generate_preview(request: ConversionRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Preview generation failed: {str(e)}")
+
+@app.get("/conversion-status/{filename}")
+def get_conversion_status(filename: str):
+    """Get the conversion progress for a specific file"""
+    if filename in conversion_progress:
+        return conversion_progress[filename]
+    return {"status": "not_found", "progress": 0}
 
 @app.get("/library")
 def get_library():
