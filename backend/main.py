@@ -151,8 +151,20 @@ def get_conversion_status(filename: str):
 @app.get("/library")
 def get_library():
     files = []
-    for f in AUDIO_DIR.glob("*.mp3"):
-        files.append({"filename": f.name, "path": str(f)})
+    
+    # Get completed audiobooks
+    if AUDIO_DIR.exists():
+        for f in AUDIO_DIR.glob("*.mp3"):
+            files.append({"filename": f.name, "path": str(f), "status": "completed"})
+    
+    # Add books currently being converted
+    for filename, progress in conversion_progress.items():
+        # Only add if not already in completed list
+        if not any(book["filename"] == filename for book in files):
+            # Only show if still converting
+            if progress.get("status") not in ["completed", "failed", "not_found"]:
+                files.append({"filename": filename, "path": "", "status": "converting"})
+    
     return files
 
 @app.get("/audio/{filename}")
