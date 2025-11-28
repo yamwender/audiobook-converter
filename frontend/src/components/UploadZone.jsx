@@ -9,18 +9,32 @@ const UploadZone = ({ onUploadSuccess }) => {
     const [conversionStage, setConversionStage] = useState(''); // 'uploading', 'converting', 'done'
     const [narratorVoice, setNarratorVoice] = useState('en-US-GuyNeural');
     const [dialogueVoice, setDialogueVoice] = useState('en-US-JennyNeural');
+    const [emphasisVoice, setEmphasisVoice] = useState('en-US-DavisNeural');
     const [uploadedFile, setUploadedFile] = useState(null);
     const [previewUrl, setPreviewUrl] = useState(null);
     const [generatingPreview, setGeneratingPreview] = useState(false);
 
     const voices = [
-        { id: 'en-US-GuyNeural', name: 'Guy (US Male)' },
-        { id: 'en-US-JennyNeural', name: 'Jenny (US Female)' },
+        // US Voices
+        { id: 'en-US-GuyNeural', name: 'Guy (US Male - Warm)' },
+        { id: 'en-US-DavisNeural', name: 'Davis (US Male - Strong)' },
+        { id: 'en-US-TonyNeural', name: 'Tony (US Male - News)' },
+        { id: 'en-US-JasonNeural', name: 'Jason (US Male - Young)' },
+        { id: 'en-US-JennyNeural', name: 'Jenny (US Female - Friendly)' },
+        { id: 'en-US-AriaNeural', name: 'Aria (US Female - Expressive)' },
+        { id: 'en-US-SaraNeural', name: 'Sara (US Female - Professional)' },
+        { id: 'en-US-NancyNeural', name: 'Nancy (US Female - News)' },
+        // UK Voices
         { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male)' },
+        { id: 'en-GB-ThomasNeural', name: 'Thomas (UK Male - Calm)' },
         { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)' },
+        { id: 'en-GB-LibbyNeural', name: 'Libby (UK Female - Bright)' },
+        // Australian Voices
         { id: 'en-AU-WilliamNeural', name: 'William (AU Male)' },
-        { id: 'en-US-AriaNeural', name: 'Aria (US Female)' },
-        { id: 'en-US-DavisNeural', name: 'Davis (US Male)' },
+        { id: 'en-AU-NatashaNeural', name: 'Natasha (AU Female)' },
+        // Indian Voices
+        { id: 'en-IN-PrabhatNeural', name: 'Prabhat (IN Male)' },
+        { id: 'en-IN-NeerjaNeural', name: 'Neerja (IN Female)' },
     ];
 
     const handleFileChange = async (e) => {
@@ -54,6 +68,7 @@ const UploadZone = ({ onUploadSuccess }) => {
                 filename: uploadRes.data.filename,
                 narrator_voice_id: narratorVoice,
                 dialogue_voice_id: dialogueVoice,
+                emphasis_voice_id: emphasisVoice,
             });
 
             setConversionStage('done');
@@ -86,6 +101,7 @@ const UploadZone = ({ onUploadSuccess }) => {
                 filename: uploadedFile,
                 narrator_voice_id: narratorVoice,
                 dialogue_voice_id: dialogueVoice,
+                emphasis_voice_id: emphasisVoice,
             }, {
                 responseType: 'blob'
             });
@@ -150,6 +166,24 @@ const UploadZone = ({ onUploadSuccess }) => {
                     value={dialogueVoice}
                     onChange={(e) => setDialogueVoice(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    disabled={uploading}
+                >
+                    {voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                            {voice.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Emphasis Voice (for SHOUTING!)
+                </label>
+                <select
+                    value={emphasisVoice}
+                    onChange={(e) => setEmphasisVoice(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
                     disabled={uploading}
                 >
                     {voices.map((voice) => (

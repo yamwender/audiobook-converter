@@ -256,7 +256,7 @@ def merge_audio_chunks_binary(audio_chunks, output_path):
     
     return True
 
-def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_voice_id):
+def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_voice_id, emphasis_voice_id):
     import json
     
     path = Path(input_path)
@@ -266,6 +266,7 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
     print(f"Starting conversion for: {path.name}")
     print(f"Using narrator voice: {narrator_voice_id}")
     print(f"Using dialogue voice: {dialogue_voice_id}")
+    print(f"Using emphasis voice: {emphasis_voice_id}")
     
     # Extract text and chapters
     if path.suffix.lower() == '.pdf':
@@ -312,8 +313,21 @@ def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_vo
         chunk_audio = []
         
         for segment in segments:
-            # Choose voice based on segment type
-            voice_to_use = dialogue_voice_id if segment['type'] == 'dialogue' else narrator_voice_id
+            # Detect emphasis (ALL CAPS, multiple exclamation marks)
+            text = segment['text']
+            is_emphasis = (
+                (text.isupper() and len(text.split()) > 2) or  # ALL CAPS text
+                ('!!' in text) or  # Multiple exclamation marks
+                ('!!!' in text)
+            )
+            
+            # Choose voice based on segment type and emphasis
+            if is_emphasis:
+                voice_to_use = emphasis_voice_id
+            elif segment['type'] == 'dialogue':
+                voice_to_use = dialogue_voice_id
+            else:
+                voice_to_use = narrator_voice_id
             
             audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
             if audio_bytes:

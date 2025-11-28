@@ -38,6 +38,7 @@ class ConversionRequest(BaseModel):
     filename: str
     narrator_voice_id: str = "en-US-GuyNeural"  # Default narrator voice
     dialogue_voice_id: str = "en-US-JennyNeural"  # Default dialogue voice
+    emphasis_voice_id: str = "en-US-DavisNeural"  # Default emphasis voice
 
 @app.get("/")
 def read_root():
@@ -64,13 +65,14 @@ async def start_conversion(request: ConversionRequest, background_tasks: Backgro
     output_filename = f"{file_path.stem}.mp3"
     output_path = AUDIO_DIR / output_filename
     
-    # Run conversion in background with both voices
+    # Run conversion in background with all three voices
     background_tasks.add_task(
         convert_to_audiobook, 
         str(file_path), 
         str(output_path), 
         request.narrator_voice_id,
-        request.dialogue_voice_id
+        request.dialogue_voice_id,
+        request.emphasis_voice_id
     )
     
     return {"message": "Conversion started", "output_filename": output_filename}
@@ -105,7 +107,22 @@ async def generate_preview(request: ConversionRequest):
         # Generate audio for each segment
         audio_chunks = []
         for segment in segments:
-            voice_to_use = request.dialogue_voice_id if segment['type'] == 'dialogue' else request.narrator_voice_id
+            # Detect emphasis (ALL CAPS, multiple exclamation marks)
+            text = segment['text']
+            is_emphasis = (
+                (text.isupper() and len(text.split()) > 2) or  # ALL CAPS text
+                ('!!' in text) or  # Multiple exclamation marks
+                ('!!!' in text)
+            )
+            
+            # Choose voice based on segment type and emphasis
+            if is_emphasis:
+                voice_to_use = request.emphasis_voice_id
+            elif segment['type'] == 'dialogue':
+                voice_to_use = request.dialogue_voice_id
+            else:
+                voice_to_use = request.narrator_voice_id
+                
             audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
             if audio_bytes:
                 audio_chunks.append(audio_bytes)
