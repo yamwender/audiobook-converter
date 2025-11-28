@@ -1,17 +1,26 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Upload, FileText, Loader2 } from 'lucide-react';
+import { Upload, FileText, Loader2, CheckCircle } from 'lucide-react';
 import { API_URL } from '../config';
 
 const UploadZone = ({ onUploadSuccess }) => {
     const [uploading, setUploading] = useState(false);
-    const [message, setMessage] = useState('');
-    const [selectedVoice, setSelectedVoice] = useState('ZQe5CZNOzWyzPSCn5a3c'); // Default to James
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [conversionStage, setConversionStage] = useState(''); // 'uploading', 'converting', 'done'
+    const [narratorVoice, setNarratorVoice] = useState('en-US-GuyNeural');
+    const [dialogueVoice, setDialogueVoice] = useState('en-US-JennyNeural');
+    const [uploadedFile, setUploadedFile] = useState(null);
+    const [previewUrl, setPreviewUrl] = useState(null);
+    const [generatingPreview, setGeneratingPreview] = useState(false);
 
     const voices = [
-        { id: 'ZQe5CZNOzWyzPSCn5a3c', name: 'James' },
-        { id: 'N2lVS1w4EtoT3dr4eOWO', name: 'Callum' },
-        { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel' },
+        { id: 'en-US-GuyNeural', name: 'Guy (US Male)' },
+        { id: 'en-US-JennyNeural', name: 'Jenny (US Female)' },
+        { id: 'en-GB-RyanNeural', name: 'Ryan (UK Male)' },
+        { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)' },
+        { id: 'en-AU-WilliamNeural', name: 'William (AU Male)' },
+        { id: 'en-US-AriaNeural', name: 'Aria (US Female)' },
+        { id: 'en-US-DavisNeural', name: 'Davis (US Male)' },
     ];
 
     const handleFileChange = async (e) => {
@@ -19,33 +28,92 @@ const UploadZone = ({ onUploadSuccess }) => {
         if (!file) return;
 
         setUploading(true);
-        setMessage('Uploading...');
+        setUploadProgress(0);
+        setConversionStage('uploading');
 
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            // 1. Upload file
+            // 1. Upload file with progress tracking
             const uploadRes = await axios.post(`${API_URL}/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
+                onUploadProgress: (progressEvent) => {
+                    const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    setUploadProgress(percentCompleted);
+                }
             });
 
-            setMessage('Starting conversion...');
+            // Store uploaded filename for preview
+            setUploadedFile(uploadRes.data.filename);
+            setConversionStage('converting');
+            setUploadProgress(100);
 
-            // 2. Trigger conversion with selected voice
+            // 2. Trigger conversion with selected voices
             await axios.post(`${API_URL}/convert`, {
                 filename: uploadRes.data.filename,
-                voice_id: selectedVoice,
+                narrator_voice_id: narratorVoice,
+                dialogue_voice_id: dialogueVoice,
             });
 
-            setMessage('Conversion started! It will appear in the library soon.');
-            if (onUploadSuccess) onUploadSuccess();
+            setConversionStage('done');
+
+            // Wait 2 seconds before resetting
+            setTimeout(() => {
+                setUploading(false);
+                setConversionStage('');
+                setUploadProgress(0);
+                if (onUploadSuccess) onUploadSuccess();
+            }, 2000);
 
         } catch (error) {
             console.error(error);
-            setMessage('Error uploading or converting file.');
+            setConversionStage('error');
+            setTimeout(() => {
+                setUploading(false);
+                setConversionStage('');
+                setUploadProgress(0);
+            }, 3000);
+        }
+    };
+
+    const handlePreview = async () => {
+        if (!uploadedFile) return;
+
+        setGeneratingPreview(true);
+        try {
+            const response = await axios.post(`${API_URL}/preview`, {
+                filename: uploadedFile,
+                narrator_voice_id: narratorVoice,
+                dialogue_voice_id: dialogueVoice,
+            }, {
+                responseType: 'blob'
+            });
+
+            // Create URL for audio playback
+            const audioBlob = new Blob([response.data], { type: 'audio/mpeg' });
+            const url = URL.createObjectURL(audioBlob);
+            setPreviewUrl(url);
+        } catch (error) {
+            console.error("Preview generation failed:", error);
+            alert("Failed to generate preview. Please try again.");
         } finally {
-            setUploading(false);
+            setGeneratingPreview(false);
+        }
+    };
+
+    const getStatusMessage = () => {
+        switch (conversionStage) {
+            case 'uploading':
+                return `Uploading... ${uploadProgress}%`;
+            case 'converting':
+                return 'Converting to audiobook...';
+            case 'done':
+                return 'Conversion started! Check library soon.';
+            case 'error':
+                return 'Error uploading or converting file.';
+            default:
+                return '';
         }
     };
 
@@ -58,11 +126,11 @@ const UploadZone = ({ onUploadSuccess }) => {
 
             <div className="mb-4">
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                    Select Voice
+                    Narrator Voice
                 </label>
                 <select
-                    value={selectedVoice}
-                    onChange={(e) => setSelectedVoice(e.target.value)}
+                    value={narratorVoice}
+                    onChange={(e) => setNarratorVoice(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     disabled={uploading}
                 >
@@ -74,6 +142,64 @@ const UploadZone = ({ onUploadSuccess }) => {
                 </select>
             </div>
 
+            <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Dialogue Voice (for quotes)
+                </label>
+                <select
+                    value={dialogueVoice}
+                    onChange={(e) => setDialogueVoice(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    disabled={uploading}
+                >
+                    {voices.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                            {voice.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {/* Preview Section */}
+            {uploadedFile && !uploading && (
+                <div className="mb-4 p-4 bg-slate-700/50 rounded-lg border border-slate-600">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="text-sm text-slate-300">
+                            <span className="font-medium">Ready:</span> {uploadedFile}
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handlePreview}
+                        disabled={generatingPreview}
+                        className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                        {generatingPreview ? (
+                            <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Generating Preview...
+                            </>
+                        ) : (
+                            <>
+                                🎧 Preview Voices (30s)
+                            </>
+                        )}
+                    </button>
+
+                    {previewUrl && (
+                        <div className="mt-3">
+                            <p className="text-xs text-slate-400 mb-2">Preview Audio:</p>
+                            <audio
+                                controls
+                                src={previewUrl}
+                                className="w-full"
+                                style={{ height: '40px' }}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="relative border-2 border-dashed border-slate-600 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
                 <input
                     type="file"
@@ -84,9 +210,29 @@ const UploadZone = ({ onUploadSuccess }) => {
                 />
 
                 {uploading ? (
-                    <div className="flex flex-col items-center gap-2 text-slate-300">
-                        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                        <span>{message}</span>
+                    <div className="flex flex-col items-center gap-3 text-slate-300">
+                        {conversionStage === 'done' ? (
+                            <CheckCircle className="w-8 h-8 text-green-500" />
+                        ) : (
+                            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                        )}
+                        <span className="font-medium">{getStatusMessage()}</span>
+
+                        {/* Progress Bar */}
+                        {conversionStage === 'uploading' && (
+                            <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                                <div
+                                    className="bg-blue-600 h-full transition-all duration-300"
+                                    style={{ width: `${uploadProgress}%` }}
+                                />
+                            </div>
+                        )}
+
+                        {conversionStage === 'converting' && (
+                            <div className="w-full bg-slate-700 rounded-full h-2.5 overflow-hidden">
+                                <div className="bg-purple-600 h-full w-full animate-pulse" />
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -96,12 +242,6 @@ const UploadZone = ({ onUploadSuccess }) => {
                     </div>
                 )}
             </div>
-
-            {message && !uploading && (
-                <div className="mt-4 text-center text-sm text-green-400">
-                    {message}
-                </div>
-            )}
         </div>
     );
 };

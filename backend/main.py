@@ -36,7 +36,8 @@ if FRONTEND_DIST.exists():
 
 class ConversionRequest(BaseModel):
     filename: str
-    voice_id: str = "21m00Tcm4TlvDq8ikWAM" # Default voice
+    narrator_voice_id: str = "en-US-GuyNeural"  # Default narrator voice
+    dialogue_voice_id: str = "en-US-JennyNeural"  # Default dialogue voice
 
 @app.get("/")
 def read_root():
@@ -63,10 +64,68 @@ async def start_conversion(request: ConversionRequest, background_tasks: Backgro
     output_filename = f"{file_path.stem}.mp3"
     output_path = AUDIO_DIR / output_filename
     
-    # Run conversion in background
-    background_tasks.add_task(convert_to_audiobook, str(file_path), str(output_path), request.voice_id)
+    # Run conversion in background with both voices
+    background_tasks.add_task(
+        convert_to_audiobook, 
+        str(file_path), 
+        str(output_path), 
+        request.narrator_voice_id,
+        request.dialogue_voice_id
+    )
     
     return {"message": "Conversion started", "output_filename": output_filename}
+
+@app.post("/preview")
+async def generate_preview(request: ConversionRequest):
+    """Generate a 30-second preview of the selected voices"""
+    from converter import extract_text_from_pdf, extract_text_from_epub_with_chapters, split_into_narrative_segments, text_to_speech_chunk
+    import io
+    
+    file_path = UPLOAD_DIR / request.filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Extract first portion of text (enough for ~30 seconds)
+    try:
+        if file_path.suffix.lower() == '.pdf':
+            from converter import extract_text_from_pdf
+            full_text = extract_text_from_pdf(str(file_path))
+        elif file_path.suffix.lower() == '.epub':
+            from converter import extract_text_from_epub_with_chapters
+            full_text, _ = extract_text_from_epub_with_chapters(str(file_path))
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format")
+        
+        # Take first ~500 characters for preview (about 30 seconds of audio)
+        preview_text = full_text[:500]
+        
+        # Split into narrative segments
+        segments = split_into_narrative_segments(preview_text)
+        
+        # Generate audio for each segment
+        audio_chunks = []
+        for segment in segments:
+            voice_to_use = request.dialogue_voice_id if segment['type'] == 'dialogue' else request.narrator_voice_id
+            audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
+            if audio_bytes:
+                audio_chunks.append(audio_bytes)
+        
+        # Merge all chunks
+        if not audio_chunks:
+            raise HTTPException(status_code=500, detail="Failed to generate preview")
+        
+        preview_audio = b''.join(audio_chunks)
+        
+        # Return audio as streaming response
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(
+            io.BytesIO(preview_audio),
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": f"inline; filename=preview.mp3"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Preview generation failed: {str(e)}")
 
 @app.get("/library")
 def get_library():

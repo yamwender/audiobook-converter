@@ -1,17 +1,12 @@
 import os
-import requests
 from pathlib import Path
 import PyPDF2
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-load_dotenv()
-
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 CHUNK_SIZE = 1024
-MAX_CHARS_PER_REQUEST = 5000  # ElevenLabs limit for most voices
+MAX_CHARS_PER_REQUEST = 5000  # Keep reasonable chunk size
 
 def extract_text_from_pdf(pdf_path):
     text = ""
@@ -143,6 +138,55 @@ def detect_chapters_from_text(text):
     
     return chapters
 
+def split_into_narrative_segments(text):
+    """Split text into segments with narration and dialogue markers"""
+    import re
+    
+    segments = []
+    current_pos = 0
+    
+    # Find all quoted text (dialogue)
+    # Matches both "double quotes" and 'single quotes'
+    quote_pattern = r'([""""])([^""""\n]+?)\1'
+    
+    for match in re.finditer(quote_pattern, text):
+        # Add narration before this quote
+        if match.start() > current_pos:
+            narration_text = text[current_pos:match.start()].strip()
+            if narration_text:
+                segments.append({
+                    'type': 'narration',
+                    'text': narration_text
+                })
+        
+        # Add the dialogue (including quotes for natural reading)
+        dialogue_text = match.group(0).strip()
+        if dialogue_text:
+            segments.append({
+                'type': 'dialogue',
+                'text': dialogue_text
+            })
+        
+        current_pos = match.end()
+    
+    # Add any remaining narration after the last quote
+    if current_pos < len(text):
+        final_narration = text[current_pos:].strip()
+        if final_narration:
+            segments.append({
+                'type': 'narration',
+                'text': final_narration
+            })
+    
+    # If no dialogue found, return entire text as narration
+    if not segments:
+        segments.append({
+            'type': 'narration',
+            'text': text
+        })
+    
+    return segments
+
 def chunk_text(text, max_chars=MAX_CHARS_PER_REQUEST):
     """Split text into chunks that respect sentence boundaries"""
     chunks = []
@@ -175,34 +219,30 @@ def chunk_text(text, max_chars=MAX_CHARS_PER_REQUEST):
     return chunks
 
 def text_to_speech_chunk(text, voice_id):
-    """Convert a single text chunk to audio bytes"""
-    if not ELEVENLABS_API_KEY:
-        print("Error: ELEVENLABS_API_KEY not set")
-        return None
-
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+    """Convert a single text chunk to audio bytes using Edge TTS"""
+    import asyncio
+    import edge_tts
+    import io
     
-    headers = {
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": ELEVENLABS_API_KEY
-    }
+    async def _generate_audio():
+        communicate = edge_tts.Communicate(text, voice_id)
+        audio_data = io.BytesIO()
+        
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data.write(chunk["data"])
+        
+        return audio_data.getvalue()
     
-    data = {
-        "text": text,
-        "model_id": "eleven_monolingual_v1",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.5
-        }
-    }
-    
-    response = requests.post(url, json=data, headers=headers)
-    
-    if response.status_code == 200:
-        return response.content
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
+    try:
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        audio_bytes = loop.run_until_complete(_generate_audio())
+        loop.close()
+        return audio_bytes
+    except Exception as e:
+        print(f"Error generating audio: {e}")
         return None
 
 def merge_audio_chunks_binary(audio_chunks, output_path):
@@ -216,7 +256,7 @@ def merge_audio_chunks_binary(audio_chunks, output_path):
     
     return True
 
-def convert_to_audiobook(input_path, output_path, voice_id):
+def convert_to_audiobook(input_path, output_path, narrator_voice_id, dialogue_voice_id):
     import json
     
     path = Path(input_path)
@@ -224,6 +264,8 @@ def convert_to_audiobook(input_path, output_path, voice_id):
     chapters = []
     
     print(f"Starting conversion for: {path.name}")
+    print(f"Using narrator voice: {narrator_voice_id}")
+    print(f"Using dialogue voice: {dialogue_voice_id}")
     
     # Extract text and chapters
     if path.suffix.lower() == '.pdf':
@@ -255,7 +297,7 @@ def convert_to_audiobook(input_path, output_path, voice_id):
     chunks = chunk_text(text)
     print(f"Split into {len(chunks)} chunks")
     
-    # Convert each chunk to audio and track timestamps
+    # Convert each chunk to audio with voice switching
     audio_chunks = []
     chunk_char_positions = []
     cumulative_chars = 0
@@ -265,11 +307,25 @@ def convert_to_audiobook(input_path, output_path, voice_id):
         chunk_char_positions.append(cumulative_chars)
         cumulative_chars += len(chunk)
         
-        audio_bytes = text_to_speech_chunk(chunk, voice_id)
-        if audio_bytes:
-            audio_chunks.append(audio_bytes)
-        else:
-            print(f"Failed to convert chunk {i+1}")
+        # Split chunk into narrative segments
+        segments = split_into_narrative_segments(chunk)
+        chunk_audio = []
+        
+        for segment in segments:
+            # Choose voice based on segment type
+            voice_to_use = dialogue_voice_id if segment['type'] == 'dialogue' else narrator_voice_id
+            
+            audio_bytes = text_to_speech_chunk(segment['text'], voice_to_use)
+            if audio_bytes:
+                chunk_audio.append(audio_bytes)
+            else:
+                print(f"Failed to convert {segment['type']} segment")
+        
+        # Merge segments within this chunk
+        if chunk_audio:
+            # Concatenate all segment audio for this chunk
+            merged_chunk = b''.join(chunk_audio)
+            audio_chunks.append(merged_chunk)
     
     if not audio_chunks:
         print("No audio generated")

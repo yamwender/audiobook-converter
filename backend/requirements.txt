@@ -1,9 +1,7 @@
 fastapi
 uvicorn
 python-multipart
-sqlalchemy
-ebooklib
 PyPDF2
-requests
+ebooklib
 beautifulsoup4
-python-dotenv
+edge-tts
